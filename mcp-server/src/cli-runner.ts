@@ -9,9 +9,11 @@ const execFileAsync = promisify(execFile);
 interface TrekkerCommand {
   file: string;
   prefixArgs: string[];
-  /** Run through a shell. Only used by the Windows fallback (see resolveTrekkerCommand). */
-  shell: boolean;
 }
+
+const NOT_FOUND_HINT =
+  'Set TREKKER_BIN to the path of trekker.js (e.g. ' +
+  '<npm prefix>/node_modules/@obsfx/trekker/bin/trekker.js) or a native trekker binary.';
 
 let cachedCommand: TrekkerCommand | undefined;
 
@@ -35,8 +37,11 @@ function fileExists(path: string): boolean {
  *   2. Non-Windows: plain `trekker`, resolved by the OS as before.
  *   3. Windows: find `trekker.cmd` in PATH and run the `trekker.js` that the npm shim
  *      points at (`<dir>/node_modules/@obsfx/trekker/bin/trekker.js`) directly with
- *      the current node — no shell, no quoting problems.
- *   4. Windows fallback: run the shim through cmd.exe with best-effort quoting.
+ *      the current node.
+ *
+ * The CLI is never run through a shell: arguments carry task titles and descriptions
+ * (free text from the MCP client), and cmd.exe quoting is not reliable enough to pass
+ * them safely. If the CLI cannot be resolved, an error naming TREKKER_BIN is thrown.
  */
 function resolveTrekkerCommand(): TrekkerCommand {
   if (cachedCommand) return cachedCommand;
@@ -48,7 +53,7 @@ function resolveTrekkerCommand(): TrekkerCommand {
   }
 
   if (process.platform !== 'win32') {
-    cachedCommand = { file: 'trekker', prefixArgs: [], shell: false };
+    cachedCommand = { file: 'trekker', prefixArgs: [] };
     return cachedCommand;
   }
 
@@ -63,39 +68,28 @@ function resolveTrekkerCommand(): TrekkerCommand {
     }
   }
 
-  // Not found in PATH: let the shell try (and produce a readable error).
-  cachedCommand = { file: 'trekker', prefixArgs: [], shell: true };
-  return cachedCommand;
+  throw new Error(`trekker CLI not found in PATH. ${NOT_FOUND_HINT}`);
 }
 
 function commandForPath(path: string): TrekkerCommand {
   const lower = path.toLowerCase();
 
   if (lower.endsWith('.js') || lower.endsWith('.mjs') || lower.endsWith('.cjs')) {
-    return { file: process.execPath, prefixArgs: [path], shell: false };
+    return { file: process.execPath, prefixArgs: [path] };
   }
 
-  if (lower.endsWith('.cmd') || lower.endsWith('.bat')) {
+  if (lower.endsWith('.cmd') || lower.endsWith('.bat') || lower.endsWith('.ps1')) {
     // npm's shim layout: <prefix>/trekker.cmd -> <prefix>/node_modules/@obsfx/trekker/bin/trekker.js
     const script = join(dirname(path), 'node_modules', '@obsfx', 'trekker', 'bin', 'trekker.js');
     if (fileExists(script)) {
-      return { file: process.execPath, prefixArgs: [script], shell: false };
+      return { file: process.execPath, prefixArgs: [script] };
     }
-    return { file: path, prefixArgs: [], shell: true };
+    throw new Error(
+      `Found ${path} but not the trekker.js it should point at (${script}). ${NOT_FOUND_HINT}`
+    );
   }
 
-  return { file: path, prefixArgs: [], shell: false };
-}
-
-/**
- * Quote an argument for cmd.exe + MSVCRT argv parsing. Best effort: used only on the
- * Windows fallback path when the shim's target script could not be located.
- */
-function quoteForCmd(arg: string): string {
-  if (arg === '') return '""';
-  if (!/[\s"&|<>^%()!]/.test(arg)) return arg;
-  const escaped = arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, '$1$1');
-  return `"${escaped}"`;
+  return { file: path, prefixArgs: [] };
 }
 
 export async function runTrekker<T = unknown>(
@@ -108,17 +102,14 @@ export async function runTrekker<T = unknown>(
   if (toon) fullArgs.push('--toon');
   fullArgs.push(...args);
 
-  const command = resolveTrekkerCommand();
-  const argv = [...command.prefixArgs, ...fullArgs];
-
   try {
+    const command = resolveTrekkerCommand();
     const { stdout, stderr } = await execFileAsync(
       command.file,
-      command.shell ? argv.map(quoteForCmd) : argv,
+      [...command.prefixArgs, ...fullArgs],
       {
         cwd,
         timeout: 30000,
-        shell: command.shell,
       }
     );
 

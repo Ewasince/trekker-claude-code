@@ -21338,6 +21338,7 @@ import { existsSync } from "node:fs";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 var execFileAsync = promisify(execFile);
+var NOT_FOUND_HINT = "Set TREKKER_BIN to the path of trekker.js (e.g. <npm prefix>/node_modules/@obsfx/trekker/bin/trekker.js) or a native trekker binary.";
 var cachedCommand;
 function fileExists(path) {
   try {
@@ -21354,7 +21355,7 @@ function resolveTrekkerCommand() {
     return cachedCommand;
   }
   if (process.platform !== "win32") {
-    cachedCommand = { file: "trekker", prefixArgs: [], shell: false };
+    cachedCommand = { file: "trekker", prefixArgs: [] };
     return cachedCommand;
   }
   for (const dir of (process.env.PATH ?? "").split(delimiter)) {
@@ -21367,44 +21368,37 @@ function resolveTrekkerCommand() {
       }
     }
   }
-  cachedCommand = { file: "trekker", prefixArgs: [], shell: true };
-  return cachedCommand;
+  throw new Error(`trekker CLI not found in PATH. ${NOT_FOUND_HINT}`);
 }
 function commandForPath(path) {
   const lower = path.toLowerCase();
   if (lower.endsWith(".js") || lower.endsWith(".mjs") || lower.endsWith(".cjs")) {
-    return { file: process.execPath, prefixArgs: [path], shell: false };
+    return { file: process.execPath, prefixArgs: [path] };
   }
-  if (lower.endsWith(".cmd") || lower.endsWith(".bat")) {
+  if (lower.endsWith(".cmd") || lower.endsWith(".bat") || lower.endsWith(".ps1")) {
     const script = join(dirname(path), "node_modules", "@obsfx", "trekker", "bin", "trekker.js");
     if (fileExists(script)) {
-      return { file: process.execPath, prefixArgs: [script], shell: false };
+      return { file: process.execPath, prefixArgs: [script] };
     }
-    return { file: path, prefixArgs: [], shell: true };
+    throw new Error(
+      `Found ${path} but not the trekker.js it should point at (${script}). ${NOT_FOUND_HINT}`
+    );
   }
-  return { file: path, prefixArgs: [], shell: false };
-}
-function quoteForCmd(arg) {
-  if (arg === "") return '""';
-  if (!/[\s"&|<>^%()!]/.test(arg)) return arg;
-  const escaped = arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, "$1$1");
-  return `"${escaped}"`;
+  return { file: path, prefixArgs: [] };
 }
 async function runTrekker(args, options = {}) {
   const { cwd = process.cwd(), toon = true } = options;
   const fullArgs = [];
   if (toon) fullArgs.push("--toon");
   fullArgs.push(...args);
-  const command = resolveTrekkerCommand();
-  const argv = [...command.prefixArgs, ...fullArgs];
   try {
+    const command = resolveTrekkerCommand();
     const { stdout, stderr } = await execFileAsync(
       command.file,
-      command.shell ? argv.map(quoteForCmd) : argv,
+      [...command.prefixArgs, ...fullArgs],
       {
         cwd,
-        timeout: 3e4,
-        shell: command.shell
+        timeout: 3e4
       }
     );
     if (stderr) {

@@ -1,21 +1,18 @@
 {
-  "name": "trekker-marketplace",
+  "name": "ewasince-trekker",
   "owner": {
-    "name": "Omercan Balandi",
-    "url": "https://github.com/obsfx"
+    "name": "Ewasince",
+    "url": "https://github.com/Ewasince"
   },
   "metadata": {
-    "description": "Trekker issue tracker plugin for Claude Code"
+    "description": "Trekker issue tracker plugin for Claude Code (Ewasince fork: Windows MCP fix)"
   },
   "plugins": [
     {
       "name": "trekker",
-      "source": {
-        "source": "github",
-        "repo": "obsfx/trekker-claude-code"
-      },
+      "source": "./",
       "description": "AI-optimized issue tracker for coding workflows. Manage tasks, epics, and dependencies with simple CLI commands.",
-      "version": "1.10.3",
+      "version": "1.10.4",
       "author": {
         "name": "Omercan Balandi"
       }
